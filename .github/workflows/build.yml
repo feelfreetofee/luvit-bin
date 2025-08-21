@@ -1,0 +1,76 @@
+name: Luvit Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  linux-arm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feelfreetofee/luvit-bin
+        uses: actions/checkout@v4
+
+      - name: Clone
+        working-directory: ci
+        run: |
+          chmod u+x build.sh
+          ./build.sh clone
+
+      - uses: uraimo/run-on-arch-action@v2
+        name: Build
+        with:
+          distro: stretch
+          arch: armv6
+          shell: /bin/bash
+          install: |
+            apt-get update -q -y
+            apt-get install -q -y build-essential perl git cmake
+          run: |
+            cd ci
+            ./build.sh luvi
+            ./build.sh lit
+            ./build.sh luvit
+            ./build.sh package_docker_inner
+
+      - name: Package
+        working-directory: ci
+        run: |
+          ./build.sh package_docker_outer
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.artifact }}
+          path: ci/build/${{ env.artifact }}
+
+  release:
+    needs: [linux-arm] 
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feelfreetofee/luvit-bin
+        uses: actions/checkout@v4
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build
+
+      - name: Collect Artifacts
+        run: |
+          mkdir -p releases/
+          cp build/**/* releases/
+
+      - name: Generate Release Information
+        working-directory: ci
+        run: |
+          chmod u+x release.sh
+          ./release.sh
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          body_path: ci/RELEASE
+          files: releases/*
+          name: Luvit ${{ env.tag }}
+          tag_name: ${{ env.tag }}
